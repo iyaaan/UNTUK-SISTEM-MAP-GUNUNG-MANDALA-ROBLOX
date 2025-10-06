@@ -1,0 +1,920 @@
+-- LocalScript: AdminPanelGUI
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Buat ScreenGui utama dengan ZIndex tinggi agar di atas inventory
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AdminPanel"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.DisplayOrder = 10
+screenGui.Parent = playerGui
+
+-- Fungsi untuk membuat elemen UI dengan styling konsisten
+local function createFrame(name, size, position, backgroundColor, cornerRadius)
+	local frame = Instance.new("Frame")
+	frame.Name = name
+	frame.Size = size
+	frame.Position = position
+	frame.BackgroundColor3 = backgroundColor
+	frame.BorderSizePixel = 0
+	frame.ZIndex = 10
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, cornerRadius)
+	corner.Parent = frame
+
+	return frame
+end
+
+local function createTextLabel(name, text, size, position, textColor, textSize, font)
+	local label = Instance.new("TextLabel")
+	label.Name = name
+	label.Text = text
+	label.Size = size
+	label.Position = position
+	label.BackgroundTransparency = 1
+	label.TextColor3 = textColor
+	label.TextSize = textSize
+	label.Font = font
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.ZIndex = 11
+
+	return label
+end
+
+local function createTextBox(name, placeholder, size, position)
+	local textBox = Instance.new("TextBox")
+	textBox.Name = name
+	textBox.PlaceholderText = placeholder
+	textBox.Size = size
+	textBox.Position = position
+	textBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+	textBox.TextSize = 12
+	textBox.Font = Enum.Font.Gotham
+	textBox.ClearTextOnFocus = true
+	textBox.ZIndex = 11
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = textBox
+
+	return textBox
+end
+
+local function createTextButton(name, text, size, position, backgroundColor, textColor)
+	local button = Instance.new("TextButton")
+	button.Name = name
+	button.Text = text
+	button.Size = size
+	button.Position = position
+	button.BackgroundColor3 = backgroundColor
+	button.TextColor3 = textColor
+	button.TextSize = 12
+	button.Font = Enum.Font.GothamSemibold
+	button.AutoButtonColor = true
+	button.ZIndex = 11
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = button
+
+	return button
+end
+
+local function createScrollingFrame(name, size, position)
+	local scrollingFrame = Instance.new("ScrollingFrame")
+	scrollingFrame.Name = name
+	scrollingFrame.Size = size
+	scrollingFrame.Position = position
+	scrollingFrame.BackgroundTransparency = 1
+	scrollingFrame.BorderSizePixel = 0
+	scrollingFrame.ScrollBarThickness = 4
+	scrollingFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 100)
+	scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scrollingFrame.ZIndex = 11
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 3)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = scrollingFrame
+
+	return scrollingFrame
+end
+
+-- Tombol Admin Panel di BIRI BAWAH
+local adminButton = createTextButton(
+	"AdminButton",
+	"Admin Panel",
+	UDim2.new(0, 120, 0, 40),
+	UDim2.new(0, 20, 1, -60),  -- Diubah: X = 0, 20 (kiri); Y = 1, -60 (bawah)
+	Color3.fromRGB(0, 100, 200),
+	Color3.fromRGB(255, 255, 255)
+)
+adminButton.Parent = screenGui
+
+-- Panel Admin utama (tersembunyi awal) - POSISI DI KIRI BAWAH
+local mainPanel = createFrame(
+	"MainPanel",
+	UDim2.new(0, 300, 0, 450),  -- Diubah: Lebar 300 (bukan full width)
+	UDim2.new(0, 20, 1, -470),  -- Diubah: X = 0, 20 (kiri); Y = 1, -470 (bawah)
+	Color3.fromRGB(30, 30, 35),
+	10
+)
+mainPanel.Visible = false
+mainPanel.Parent = screenGui
+
+-- Variabel untuk drag functionality
+local dragging = false
+local dragInput
+local dragStart
+local startPos
+
+-- Variabel untuk minimize state
+local isMinimized = false
+local originalSize = UDim2.new(1, -40, 0, 450)
+local minimizedSize = UDim2.new(1, -40, 0, 45)
+local originalPosition = UDim2.new(0, 20, 1, -470)
+
+-- Variabel state
+local currentTarget = nil
+local isAllPlayers = false
+local selectedActions = {}
+local syncLabel = nil
+
+-- Fungsi untuk membuat panel bisa digeser
+local function updateInput(input)
+	if dragging then
+		local delta = input.Position - dragStart
+		mainPanel.Position = UDim2.new(
+			startPos.X.Scale, 
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale, 
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end
+
+-- Fungsi untuk mulai drag
+local function beginDrag(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainPanel.Position
+
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end
+
+-- Header Panel - ini yang akan jadi area drag
+local header = createFrame(
+	"Header",
+	UDim2.new(1, 0, 0, 45),
+	UDim2.new(0, 0, 0, 0),
+	Color3.fromRGB(40, 40, 45),
+	10
+)
+header.Parent = mainPanel
+
+-- Buat header bisa di-drag
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		beginDrag(input)
+	end
+end)
+
+header.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		dragInput = input
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		updateInput(input)
+	end
+end)
+
+-- Tambahkan icon grip di header untuk indikasi bisa digeser
+local gripIcon = createTextLabel(
+	"GripIcon",
+	"⠿",
+	UDim2.new(0, 30, 1, 0),
+	UDim2.new(0, 10, 0, 0),
+	Color3.fromRGB(150, 150, 150),
+	16,
+	Enum.Font.Gotham
+)
+gripIcon.TextXAlignment = Enum.TextXAlignment.Center
+gripIcon.Parent = header
+
+local titleLabel = createTextLabel(
+	"Title",
+	"Admin Panel",
+	UDim2.new(1, -140, 1, 0),
+	UDim2.new(0, 45, 0, 0),
+	Color3.fromRGB(255, 255, 255),
+	16,
+	Enum.Font.GothamBold
+)
+titleLabel.Parent = header
+
+-- Tombol Minimize
+local minimizeButton = createTextButton(
+	"MinimizeButton",
+	"_",
+	UDim2.new(0, 30, 0, 30),
+	UDim2.new(1, -75, 0.5, -15),
+	Color3.fromRGB(100, 100, 150),
+	Color3.fromRGB(255, 255, 255)
+)
+minimizeButton.Parent = header
+
+-- Tombol Close dengan simbol X
+local closeButton = createTextButton(
+	"CloseButton",
+	"×",
+	UDim2.new(0, 30, 0, 30),
+	UDim2.new(1, -35, 0.5, -15),
+	Color3.fromRGB(200, 60, 60),
+	Color3.fromRGB(255, 255, 255)
+)
+closeButton.Parent = header
+
+-- Container untuk tiga baris utama
+local contentContainer = createFrame(
+	"ContentContainer",
+	UDim2.new(1, -30, 1, -75),
+	UDim2.new(0, 15, 0, 60),
+	Color3.fromRGB(30, 30, 35),
+	0
+)
+contentContainer.Parent = mainPanel
+
+-- BARIS 1: Target Player
+local row1 = createFrame(
+	"Row1",
+	UDim2.new(1, 0, 0, 120),
+	UDim2.new(0, 0, 0, 0),
+	Color3.fromRGB(40, 40, 45),
+	6
+)
+row1.Parent = contentContainer
+
+local row1Title = createTextLabel(
+	"Row1Title",
+	"Target Player",
+	UDim2.new(1, -15, 0, 25),
+	UDim2.new(0, 10, 0, 5),
+	Color3.fromRGB(255, 255, 255),
+	14,
+	Enum.Font.GothamSemibold
+)
+row1Title.Parent = row1
+
+-- Container untuk opsi target player
+local targetOptions = createFrame(
+	"TargetOptions",
+	UDim2.new(1, -15, 0, 40),
+	UDim2.new(0, 8, 0, 30),
+	Color3.fromRGB(50, 50, 55),
+	6
+)
+targetOptions.Parent = row1
+
+-- Opsi Target Player Tertentu
+local specificTargetFrame = createFrame(
+	"SpecificTargetFrame",
+	UDim2.new(0.6, -5, 1, 0),
+	UDim2.new(0, 5, 0, 0),
+	Color3.fromRGB(50, 50, 55),
+	0
+)
+specificTargetFrame.Parent = targetOptions
+
+local specificTargetLabel = createTextLabel(
+	"SpecificTargetLabel",
+	"Player:",
+	UDim2.new(0, 50, 0.5, 0),
+	UDim2.new(0, 5, 0.25, 0),
+	Color3.fromRGB(200, 200, 200),
+	12,
+	Enum.Font.Gotham
+)
+specificTargetLabel.Parent = specificTargetFrame
+
+-- Container untuk search box dan search icon
+local searchContainer = createFrame(
+	"SearchContainer",
+	UDim2.new(1, -60, 0.6, 0),
+	UDim2.new(0, 55, 0.2, 0),
+	Color3.fromRGB(45, 45, 45),
+	6
+)
+searchContainer.Parent = specificTargetFrame
+
+-- TextBox dengan placeholder "cari nama disini"
+local playerInput = createTextBox(
+	"PlayerInput",
+	"cari nama disini",
+	UDim2.new(1, -35, 1, 0),
+	UDim2.new(0, 0, 0, 0)
+)
+playerInput.Parent = searchContainer
+
+-- Tombol Search Icon
+local searchButton = createTextButton(
+	"SearchButton",
+	"🔍",
+	UDim2.new(0, 30, 1, 0),
+	UDim2.new(1, -30, 0, 0),
+	Color3.fromRGB(80, 80, 90),
+	Color3.fromRGB(255, 255, 255)
+)
+searchButton.Parent = searchContainer
+
+-- Opsi Semua Player
+local allPlayersFrame = createFrame(
+	"AllPlayersFrame",
+	UDim2.new(0.4, -5, 1, 0),
+	UDim2.new(0.6, 5, 0, 0),
+	Color3.fromRGB(50, 50, 55),
+	0
+)
+allPlayersFrame.Parent = targetOptions
+
+local allPlayersButton = createTextButton(
+	"AllPlayersButton",
+	"Semua Player",
+	UDim2.new(1, -10, 0.7, 0),
+	UDim2.new(0, 5, 0.15, 0),
+	Color3.fromRGB(80, 80, 90),
+	Color3.fromRGB(255, 255, 255)
+)
+allPlayersButton.Parent = allPlayersFrame
+
+-- Label untuk sinkronisasi
+syncLabel = createTextLabel(
+	"SyncLabel",
+	"",
+	UDim2.new(1, -20, 0, 20),
+	UDim2.new(0, 10, 0, 70),
+	Color3.fromRGB(0, 200, 100),
+	12,
+	Enum.Font.GothamSemibold
+)
+syncLabel.TextXAlignment = Enum.TextXAlignment.Center
+syncLabel.Visible = false
+syncLabel.Parent = row1
+
+-- Tombol Reset Target (warna merah, posisi di bawah)
+local resetTargetButton = createTextButton(
+	"ResetTargetButton",
+	"Reset Target",
+	UDim2.new(0, 120, 0, 30),
+	UDim2.new(0.5, -60, 1, -35),
+	Color3.fromRGB(200, 60, 60),
+	Color3.fromRGB(255, 255, 255)
+)
+resetTargetButton.Parent = row1
+
+-- BARIS 2: Pilihan Tindakan Admin dengan 3 KOLOM
+local row2 = createFrame(
+	"Row2",
+	UDim2.new(1, 0, 0, 220),
+	UDim2.new(0, 0, 0, 130),
+	Color3.fromRGB(40, 40, 45),
+	6
+)
+row2.Parent = contentContainer
+
+local row2Title = createTextLabel(
+	"Row2Title",
+	"Pilihan Tindakan Admin (200 Opsi - 3 Kolom)",
+	UDim2.new(1, -15, 0, 25),
+	UDim2.new(0, 10, 0, 5),
+	Color3.fromRGB(255, 255, 255),
+	14,
+	Enum.Font.GothamSemibold
+)
+row2Title.Parent = row2
+
+-- Container untuk 3 kolom
+local columnsContainer = createFrame(
+	"ColumnsContainer",
+	UDim2.new(1, -15, 1, -35),
+	UDim2.new(0, 8, 0, 30),
+	Color3.fromRGB(40, 40, 45),
+	0
+)
+columnsContainer.Parent = row2
+
+-- Buat 3 kolom
+local column1 = createScrollingFrame(
+	"Column1",
+	UDim2.new(0.32, -5, 1, 0),
+	UDim2.new(0, 0, 0, 0)
+)
+column1.Parent = columnsContainer
+
+local column2 = createScrollingFrame(
+	"Column2",
+	UDim2.new(0.32, -5, 1, 0),
+	UDim2.new(0.33, 5, 0, 0)
+)
+column2.Parent = columnsContainer
+
+local column3 = createScrollingFrame(
+	"Column3",
+	UDim2.new(0.32, 0, 1, 0),
+	UDim2.new(0.66, 10, 0, 0)
+)
+column3.Parent = columnsContainer
+
+-- Buat 200 opsi admin dengan distribusi ke 3 kolom
+local actionButtons = {}
+local columns = {column1, column2, column3}
+local buttonsPerColumn = math.ceil(200 / 3)
+
+-- Fungsi untuk menampilkan pesan sinkronisasi
+local function showSyncMessage(message)
+	syncLabel.Text = message
+	syncLabel.Visible = true
+	syncLabel.TextColor3 = Color3.fromRGB(0, 200, 100) -- Hijau
+
+	-- Animasi fade in
+	syncLabel.TextTransparency = 1
+	local fadeIn = TweenService:Create(syncLabel, TweenInfo.new(0.3), {TextTransparency = 0})
+	fadeIn:Play()
+
+	-- Auto hide setelah 3 detik
+	delay(3, function()
+		if syncLabel then
+			local fadeOut = TweenService:Create(syncLabel, TweenInfo.new(0.5), {TextTransparency = 1})
+			fadeOut:Play()
+			fadeOut.Completed:Connect(function()
+				syncLabel.Visible = false
+			end)
+		end
+	end)
+end
+
+-- Fungsi untuk mengeksekusi aksi yang dipilih
+local function executeSelectedActions()
+	if next(selectedActions) then
+		local targetText = ""
+		if isAllPlayers then
+			targetText = "SEMUA PLAYER"
+		else
+			targetText = playerInput.Text
+		end
+
+		if targetText ~= "" and targetText ~= "cari nama disini" then
+			local actionsList = {}
+			for actionIndex, _ in pairs(selectedActions) do
+				table.insert(actionsList, actionIndex)
+			end
+			table.sort(actionsList)
+
+			print("Menerapkan aksi " .. table.concat(actionsList, ", ") .. " ke: " .. targetText)
+
+			-- Tampilkan pesan sinkronisasi
+			if isAllPlayers then
+				showSyncMessage("✓ Telah disinkronisasi ke semua player")
+			else
+				showSyncMessage("✓ Telah disinkronisasi ke: " .. targetText)
+			end
+		else
+			print("Pilih target player terlebih dahulu!")
+		end
+	else
+		print("Pilih minimal satu aksi!")
+	end
+end
+
+-- Fungsi untuk memproses pencarian/enter
+local function processSearch()
+	if not isAllPlayers and playerInput.Text ~= "" and playerInput.Text ~= "cari nama disini" then
+		local targetName = playerInput.Text
+
+		-- Simulasi pencarian player (ganti dengan logika pencarian sesungguhnya)
+		local playerFound = false
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if string.lower(plr.Name) == string.lower(targetName) or 
+				string.find(string.lower(plr.Name), string.lower(targetName)) then
+				playerFound = true
+				break
+			end
+		end
+
+		if playerFound then
+			-- Player ditemukan
+			showSyncMessage("✓ Telah disinkronisasi ke: " .. targetName)
+			print("Player ditemukan: " .. targetName)
+
+			-- Jika ada aksi yang dipilih, eksekusi
+			if next(selectedActions) then
+				executeSelectedActions()
+			end
+		else
+			-- Player tidak ditemukan
+			syncLabel.Text = "✗ Player tidak ditemukan: " .. targetName
+			syncLabel.TextColor3 = Color3.fromRGB(255, 80, 80) -- Merah
+			syncLabel.Visible = true
+			syncLabel.TextTransparency = 0
+
+			-- Auto hide setelah 3 detik
+			delay(3, function()
+				if syncLabel then
+					local fadeOut = TweenService:Create(syncLabel, TweenInfo.new(0.5), {TextTransparency = 1})
+					fadeOut:Play()
+					fadeOut.Completed:Connect(function()
+						syncLabel.Visible = false
+					end)
+				end
+			end)
+
+			print("Player tidak ditemukan: " .. targetName)
+		end
+	else
+		print("Masukkan nama player terlebih dahulu!")
+	end
+end
+
+for colIndex, column in ipairs(columns) do
+	for i = 1, buttonsPerColumn do
+		local actionIndex = (colIndex - 1) * buttonsPerColumn + i
+		if actionIndex > 200 then break end
+
+		local actionButton = createTextButton(
+			"ActionButton_" .. actionIndex,
+			"Opsi " .. actionIndex,
+			UDim2.new(1, -8, 0, 25),
+			UDim2.new(0, 4, 0, (i-1)*28),
+			Color3.fromRGB(60, 60, 70),
+			Color3.fromRGB(255, 255, 255)
+		)
+		actionButton.LayoutOrder = i
+		actionButton.Parent = column
+
+		-- Efek hover oranye
+		local originalColor = actionButton.BackgroundColor3
+		actionButton.MouseEnter:Connect(function()
+			if not isMinimized then
+				local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				local tween = TweenService:Create(actionButton, tweenInfo, {BackgroundColor3 = Color3.fromRGB(255, 165, 0)})
+				tween:Play()
+			end
+		end)
+
+		actionButton.MouseLeave:Connect(function()
+			if not isMinimized then
+				if not selectedActions[actionIndex] then
+					local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					local tween = TweenService:Create(actionButton, tweenInfo, {BackgroundColor3 = originalColor})
+					tween:Play()
+				end
+			end
+		end)
+
+		-- Toggle state untuk opsi (bisa multiple selection)
+		actionButton.MouseButton1Click:Connect(function()
+			if not isMinimized then
+				if selectedActions[actionIndex] then
+					selectedActions[actionIndex] = nil
+					actionButton.BackgroundColor3 = originalColor
+				else
+					selectedActions[actionIndex] = true
+					actionButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+				end
+
+				-- Otomatis eksekusi saat opsi dipilih
+				executeSelectedActions()
+			end
+		end)
+
+		actionButtons[actionIndex] = actionButton
+	end
+end
+
+-- BARIS 3: Reset Pilihan Aksi (warna merah)
+local row3 = createFrame(
+	"Row3",
+	UDim2.new(1, 0, 0, 50),
+	UDim2.new(0, 0, 0, 360),
+	Color3.fromRGB(40, 40, 45),
+	6
+)
+row3.Parent = contentContainer
+
+local row3Title = createTextLabel(
+	"Row3Title",
+	"Reset Pilihan",
+	UDim2.new(1, -15, 0, 25),
+	UDim2.new(0, 10, 0, 5),
+	Color3.fromRGB(255, 255, 255),
+	14,
+	Enum.Font.GothamSemibold
+)
+row3Title.Parent = row3
+
+-- Tombol Reset Pilihan Aksi (warna merah)
+local resetActionsButton = createTextButton(
+	"ResetActionsButton",
+	"Reset Semua Pilihan",
+	UDim2.new(0, 150, 0, 30),
+	UDim2.new(0.5, -75, 1, -35),
+	Color3.fromRGB(200, 60, 60),
+	Color3.fromRGB(255, 255, 255)
+)
+resetActionsButton.Parent = row3
+
+-- Fungsi untuk disable/enable player input
+local function updatePlayerInputState()
+	if isAllPlayers then
+		playerInput.Text = "SEMUA PLAYER"
+		playerInput.TextColor3 = Color3.fromRGB(150, 150, 150)
+		playerInput.Active = false
+		playerInput.ClearTextOnFocus = false
+		searchButton.Active = false
+		searchButton.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+
+		-- Tampilkan pesan sinkronisasi untuk semua player
+		if next(selectedActions) then
+			showSyncMessage("✓ Telah disinkronisasi ke semua player")
+		end
+	else
+		playerInput.Text = ""
+		playerInput.PlaceholderText = "cari nama disini"
+		playerInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+		playerInput.Active = true
+		playerInput.ClearTextOnFocus = true
+		searchButton.Active = true
+		searchButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+
+		-- Sembunyikan pesan sinkronisasi
+		syncLabel.Visible = false
+	end
+end
+
+-- Fungsi animasi close dengan efek slide ke bawah
+local function closePanelWithAnimation()
+	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+	local tween = TweenService:Create(mainPanel, tweenInfo, {
+		Position = UDim2.new(0, 20, 1, 50),
+		Size = UDim2.new(1, -40, 0, 0)
+	})
+
+	tween:Play()
+	tween.Completed:Connect(function()
+		mainPanel.Visible = false
+		mainPanel.Size = originalSize
+		mainPanel.Position = originalPosition
+		adminButton.Visible = true
+		isMinimized = false
+		minimizeButton.Text = "_"
+		contentContainer.Visible = true
+		syncLabel.Visible = false
+	end)
+end
+
+-- Fungsi untuk toggle minimize
+local function toggleMinimize()
+	isMinimized = not isMinimized
+
+	if isMinimized then
+		contentContainer.Visible = false
+		minimizeButton.Text = "□"
+
+		local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		local tween = TweenService:Create(mainPanel, tweenInfo, {
+			Size = minimizedSize
+		})
+		tween:Play()
+
+		for _, button in ipairs(actionButtons) do
+			button.Active = false
+		end
+		resetActionsButton.Active = false
+		resetTargetButton.Active = false
+		allPlayersButton.Active = false
+		playerInput.Active = false
+		searchButton.Active = false
+
+	else
+		minimizeButton.Text = "_"
+
+		local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		local tween = TweenService:Create(mainPanel, tweenInfo, {
+			Size = originalSize
+		})
+		tween:Play()
+
+		tween.Completed:Connect(function()
+			contentContainer.Visible = true
+
+			for _, button in ipairs(actionButtons) do
+				button.Active = true
+			end
+			resetActionsButton.Active = true
+			resetTargetButton.Active = true
+			allPlayersButton.Active = true
+			updatePlayerInputState()
+		end)
+	end
+end
+
+-- Fungsi untuk open panel dengan animasi slide dari bawah
+local function openPanelWithAnimation()
+	mainPanel.Visible = true
+	adminButton.Visible = false
+
+	mainPanel.Position = UDim2.new(0, 20, 1, 50)
+	mainPanel.Size = UDim2.new(1, -40, 0, 0)
+
+	local tweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(mainPanel, tweenInfo, {
+		Size = originalSize,
+		Position = originalPosition
+	})
+	tween:Play()
+
+	contentContainer.Visible = true
+	isMinimized = false
+	minimizeButton.Text = "_"
+	updatePlayerInputState()
+	syncLabel.Visible = false
+end
+
+-- Event handlers
+adminButton.MouseButton1Click:Connect(openPanelWithAnimation)
+minimizeButton.MouseButton1Click:Connect(toggleMinimize)
+closeButton.MouseButton1Click:Connect(closePanelWithAnimation)
+
+-- Reset Target
+resetTargetButton.MouseButton1Click:Connect(function()
+	if not isMinimized then
+		playerInput.Text = ""
+		currentTarget = nil
+		isAllPlayers = false
+		allPlayersButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+		updatePlayerInputState()
+		syncLabel.Visible = false
+		print("Target telah direset")
+	end
+end)
+
+-- Target Semua Player
+allPlayersButton.MouseButton1Click:Connect(function()
+	if not isMinimized then
+		isAllPlayers = not isAllPlayers
+		if isAllPlayers then
+			allPlayersButton.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+			currentTarget = nil
+		else
+			allPlayersButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+		end
+		updatePlayerInputState()
+	end
+end)
+
+-- Reset Pilihan Aksi
+resetActionsButton.MouseButton1Click:Connect(function()
+	if not isMinimized then
+		selectedActions = {}
+		for i, button in ipairs(actionButtons) do
+			button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+		end
+		syncLabel.Visible = false
+		print("Semua pilihan aksi telah direset")
+	end
+end)
+
+-- Fungsi search button
+searchButton.MouseButton1Click:Connect(function()
+	if not isMinimized and not isAllPlayers then
+		processSearch()
+	end
+end)
+
+-- Fungsi enter key pada textbox
+playerInput.FocusLost:Connect(function(enterPressed)
+	if enterPressed and not isMinimized and not isAllPlayers then
+		processSearch()
+	end
+end)
+
+-- Efek hover untuk semua tombol
+header.MouseEnter:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(header, tweenInfo, {BackgroundColor3 = Color3.fromRGB(50, 50, 55)})
+	tween:Play()
+end)
+
+header.MouseLeave:Connect(function()
+	if not dragging then
+		local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local tween = TweenService:Create(header, tweenInfo, {BackgroundColor3 = Color3.fromRGB(40, 40, 45)})
+		tween:Play()
+	end
+end)
+
+minimizeButton.MouseEnter:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(minimizeButton, tweenInfo, {BackgroundColor3 = Color3.fromRGB(120, 120, 180)})
+	tween:Play()
+end)
+
+minimizeButton.MouseLeave:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(minimizeButton, tweenInfo, {BackgroundColor3 = Color3.fromRGB(100, 100, 150)})
+	tween:Play()
+end)
+
+closeButton.MouseEnter:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(closeButton, tweenInfo, {
+		BackgroundColor3 = Color3.fromRGB(220, 80, 80),
+		TextColor3 = Color3.fromRGB(255, 255, 255)
+	})
+	tween:Play()
+end)
+
+closeButton.MouseLeave:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(closeButton, tweenInfo, {
+		BackgroundColor3 = Color3.fromRGB(200, 60, 60),
+		TextColor3 = Color3.fromRGB(255, 255, 255)
+	})
+	tween:Play()
+end)
+
+-- Efek hover untuk tombol reset (merah)
+resetTargetButton.MouseEnter:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(resetTargetButton, tweenInfo, {
+		BackgroundColor3 = Color3.fromRGB(220, 80, 80)
+	})
+	tween:Play()
+end)
+
+resetTargetButton.MouseLeave:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(resetTargetButton, tweenInfo, {
+		BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+	})
+	tween:Play()
+end)
+
+resetActionsButton.MouseEnter:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(resetActionsButton, tweenInfo, {
+		BackgroundColor3 = Color3.fromRGB(220, 80, 80)
+	})
+	tween:Play()
+end)
+
+resetActionsButton.MouseLeave:Connect(function()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(resetActionsButton, tweenInfo, {
+		BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+	})
+	tween:Play()
+end)
+
+-- Efek hover untuk search button
+searchButton.MouseEnter:Connect(function()
+	if not isAllPlayers then
+		local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local tween = TweenService:Create(searchButton, tweenInfo, {
+			BackgroundColor3 = Color3.fromRGB(100, 100, 150)
+		})
+		tween:Play()
+	end
+end)
+
+searchButton.MouseLeave:Connect(function()
+	if not isAllPlayers then
+		local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local tween = TweenService:Create(searchButton, tweenInfo, {
+			BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+		})
+		tween:Play()
+	end
+end)
+
+-- Inisialisasi state player input
+updatePlayerInputState()
+
+print("Admin Panel berhasil dimuat! Posisi diatur di atas inventory.")
